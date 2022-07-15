@@ -1,0 +1,24 @@
+{
+  "name": "warcraftlogsrankings",
+  "version": "1.0.0",
+  "description": "Retrieves your m+ rankings",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/builders": "^0.15.0",
+    "@discordjs/rest": "^0.5.0",
+    "axios": "^0.27.2",
+    "date-and-time": "^2.3.1",
+    "discord-api-types": "^0.34.0",
+    "discord.js": "^13.8.0",
+    "dotenv": "^16.0.1"
+  },
+  "devDependencies": {
+    "ticks-to-date": "^1.0.3"
+  },
+  "nodeVersion": "16.15.0"
+}
