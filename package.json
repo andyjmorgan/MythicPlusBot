@@ -9,12 +9,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@discordjs/builders": "^0.15.0",
-    "@discordjs/rest": "^0.5.0",
+    "@discordjs/rest": "^1.0.0",
     "axios": "^0.27.2",
-    "date-and-time": "^2.3.1",
-    "discord-api-types": "^0.34.0",
-    "discord.js": "^13.8.0",
+    "date-and-time": "^2.4.0",
+    "discord-api-types": "^0.36.3",
+    "discord.js": "^14.0.3",
     "dotenv": "^16.0.1"
   },
   "devDependencies": {

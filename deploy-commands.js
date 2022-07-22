@@ -13,11 +13,12 @@ let PasswordManager = JSON.parse(RawFile);
 const clientId = '986643193657454623';
 
 for (const file of commandFiles) {
+	console.log("reading: " + file);
 	const command = require(`./commands/${file}`);
 	commands.push(command.data.toJSON());
 }
 
-const rest = new REST({ version: '9' }).setToken(PasswordManager.DiscordToken);
+const rest = new REST({ version: '10' }).setToken(PasswordManager.DiscordToken);
 
 (async () => {
 	try {
