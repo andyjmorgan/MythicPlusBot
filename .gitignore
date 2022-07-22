@@ -1,3 +1,5 @@
 APICredentials.json
 node_modules
 .env
+logs
+.vscode
