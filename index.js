@@ -11,6 +11,7 @@ const { GetHighestThisWeek, LookupAffixes } = require('./lib/RaiderIO');
 const { threadId } = require('node:worker_threads');
 const { waitForDebugger } = require('node:inspector');
 const wait = require('node:timers/promises').setTimeout;
+var mysql = require('mysql');
 
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -18,8 +19,12 @@ const client = new Client({
    intents: [GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages]
 });
 
+let DBConnection = null;
 let RawFile = fs.readFileSync('APICredentials.json');
 let PasswordManager = JSON.parse(RawFile);
+
+let DBFile = fs.readFileSync('mysql.json');
+let DBConnectionManager = JSON.parse(DBFile);
 // These tokens will be used for the lifecycle of the bot:
 let WCLToken = "";
 let BNETToken = "";
@@ -209,7 +214,7 @@ function AddWeeklyKeysSummary(keys){
   else{
     keystring = 'No Keys completed this week :frowning:';
   }
-  console.log(keyString);
+  //console.log(keyString);
   return `**__Vault Choices:__**\n\n${keyString}`;
 }
 //Retrives raw dungeon details, sorts it, prints it to the summary
@@ -599,6 +604,31 @@ client.once('ready', () => {
 
 
 
+function AddActivity(Activity){
+  let QueryString = `INSERT INTO ServerActivity (DateTime, ActivityType) VALUES ('${GetSafeSQLDate()}', '${Activity}')`;
+  DBConnection.query(QueryString, function (err, result) {
+    if (err) throw err;
+    console.log("1 record inserted");
+  });
+}
+
+
+function AddRequest(command,server,user){
+  let QueryString = `INSERT INTO requests (command, datetime, server,user) VALUES ('${command}','${GetSafeSQLDate()}', '${server}', '${user}')`;
+  DBConnection.query(QueryString, function (err, result) {
+    if (err) throw err;
+    console.log("1 record inserted");
+  });
+}
+
+
+
+
+function GetSafeSQLDate(){
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
+
+
 
 
 client.on('interactionCreate', async interaction => {
@@ -618,8 +648,10 @@ client.on('interactionCreate', async interaction => {
 
 
   try {
+    AddRequest(interaction.commandName, interaction.guildId, interaction.user);
     console.log("Attempting to execute command");
     await CheckTokens();
+
     if (interaction.commandName === 'parses') {
 
       let region = interaction.options.getString("region").toLocaleLowerCase();
@@ -684,6 +716,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.editReply({ embeds: [embedMessage] });
       console.log("Awaiting Next");
     }
+
     else if (interaction.commandName === 'affixes') {
       let region = interaction.options.getString("region").toLocaleLowerCase();
       let embedMessage = GetAffixesInitialResponse(region);
@@ -705,10 +738,8 @@ client.on('interactionCreate', async interaction => {
       });
       embedMessage = SetFooter(embedMessage);
       await interaction.editReply({ embeds: [embedMessage] });
-
-
-
     }
+
     else if (interaction.commandName === 'weeklykeys') {
       let region = interaction.options.getString("region").toLocaleLowerCase();
       let realm = interaction.options.getString("realm").toLocaleLowerCase();
@@ -781,6 +812,19 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
+
+DBConnection = mysql.createConnection({
+  host: DBConnectionManager.Host,
+  database: DBConnectionManager.DBName,
+  user: DBConnectionManager.DBUser,
+  password: DBConnectionManager.DBPassword
+});
+
+DBConnection.connect(function(err) {
+  if (err) throw err;
+  console.log("Database Connected!");
+  AddActivity("Server Startup");
+});
 
 
 client.login(PasswordManager.DiscordToken); //login bot using token
