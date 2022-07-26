@@ -161,8 +161,59 @@ function FormatRaiderIOData(defaultDescription, faction, race, gender, cclass, s
   let nameLine = `\nName: **[${name}](${curl})**`;
   let bodyLine = `\nFaction/Race/Gender: **${faction}/${race}/${gender}**`;
   let classLine = `\nClass/Active Spec: **${cclass}/${spec}**`;
-  let header = "**__Top 10 Keys:__**";
-  return `${defaultDescription}\n\n**__Character Data:__**\n\n${nameLine}${bodyLine}${classLine}\n\n${header}\n\n\n`;
+  
+  return `${defaultDescription}\n\n**__Character Data:__**\n\n${nameLine}${bodyLine}${classLine}\n\n`;
+}
+//https://www.icy-veins.com/wow/great-vault-the-shadowlands-weekly-chest
+
+function ParseKeyReward(key){
+  let base = 252;
+  switch(key){
+    case 1,2,3,4:
+      return base;
+    case 5,6:
+      //255
+      return base + 3;
+    case 7:
+      //259
+      return base + 7;
+     case 8,9:
+       //262
+       return base + 10;
+    case 10:
+      //265
+      return base + 13;
+    case 11:
+      //268
+      return base + 16;
+    case 12,13:
+      //272
+      return base +20;
+    case 14:
+      //275
+      return base + 23;  
+    default: 
+      //278
+      return base + 26
+  }
+  
+}
+function AddWeeklyKeysSummary(keys){
+  let keyString = "";
+  if(keys.length >= 8){
+    keyString = `**Rewards:** 3 - Options: **${ParseKeyReward(keys[0])}** | **${ParseKeyReward(keys[3])}** | **${ParseKeyReward(keys[7])}**`
+  }
+  else if(keys.length >= 4){
+    keyString = `**Rewards:** 2 - Options: **${ParseKeyReward(keys[0])}** | **${ParseKeyReward(keys[3])}**`
+  }
+  else if(keys.length >= 1){
+    keyString = `**Rewards:** 1 - Option: **${ParseKeyReward(keys)}**`
+  }
+  else{
+    keystring = 'No Keys completed this week :frowning:';
+  }
+  console.log(keyString);
+  return `Vault Choices:\n\n${keyString}`;
 }
 //Retrives raw dungeon details, sorts it, prints it to the summary
 async function AddDungeon(charName, realm, region, axios, embedMessage, longName, displayName, dungeonCode, level, top5 = false) {
@@ -675,23 +726,34 @@ client.on('interactionCreate', async interaction => {
       let message = FormatRaiderIOData(defaultDescription, weeklies.faction, weeklies.race, weeklies.gender, weeklies.class, weeklies.active_spec_name, weeklies.name, weeklies.profile_url);
       embedMessage.setDescription(message);
       embedMessage.setThumbnail(weeklies.thumbnail_url);
-
-      weeklies.mythic_plus_weekly_highest_level_runs.forEach(weekly => {
-        let completed = Date.parse(weekly.completed_at);
-        let date = new Date(completed);
-        let niceDate = date.toLocaleDateString([], { hour: '2-digit', minute: '2-digit' });
-        let starString = GetStars(weekly.num_keystone_upgrades);
-
-        let message = `Level: [${weekly.mythic_level}](${weekly.url})${starString}\nCompleted: ${niceDate} \nTime Taken: ${TimeSpanFromMS(weekly.clear_time_ms)}`;
-
-        embedMessage.addFields(
-          [{ 
-          name: `${weekly.dungeon.replace('Tazavesh: ','')}:`, 
-        value: `${message}`,
-        inline: true
-        }]
-      );
-      });
+      let keyArr = weeklies.mythic_plus_weekly_highest_level_runs.map(a => a.mythic_level);
+      //console.log(keyArr);
+      message = (`${message}${AddWeeklyKeysSummary(keyArr)}`);
+      if(weeklies.mythic_plus_weekly_highest_level_runs.length >=1){
+        let header = "**__Top 10 Keys:__**";
+        message = `${message}\n\n\n${header}\n\n`;
+        embedMessage.setDescription(message);
+        weeklies.mythic_plus_weekly_highest_level_runs.forEach(weekly => {
+          let completed = Date.parse(weekly.completed_at);
+          let date = new Date(completed);
+          let niceDate = date.toLocaleDateString([], { hour: '2-digit', minute: '2-digit' });
+          let starString = GetStars(weekly.num_keystone_upgrades);
+  
+          let message = `Level: [${weekly.mythic_level}](${weekly.url})${starString}\nCompleted: ${niceDate} \nTime Taken: ${TimeSpanFromMS(weekly.clear_time_ms)}`;
+  
+          embedMessage.addFields(
+            [{ 
+            name: `${weekly.dungeon.replace('Tazavesh: ','')}:`, 
+          value: `${message}`,
+          inline: true
+          }]
+        );
+        });
+      }
+      else{
+        message = `${message}\n\n\n *No Keys completed this week*`
+        embedMessage.setDescription(message);
+      }
 
       embedMessage = SetFooter(embedMessage);
       await interaction.editReply({ embeds: [embedMessage] });
