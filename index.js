@@ -18,9 +18,6 @@ const client = new Client({
    intents: [GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages]
 });
 
-// Intents., Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.DIRECT_MESSAGES, Intents.FLAGS.
-//   Intents.FLAGS.DIRECT_MESSAGE_TYPING
-
 let RawFile = fs.readFileSync('APICredentials.json');
 let PasswordManager = JSON.parse(RawFile);
 // These tokens will be used for the lifecycle of the bot:
@@ -201,19 +198,19 @@ function ParseKeyReward(key){
 function AddWeeklyKeysSummary(keys){
   let keyString = "";
   if(keys.length >= 8){
-    keyString = `**Rewards:** 3 - Options: **${ParseKeyReward(keys[0])}** | **${ParseKeyReward(keys[3])}** | **${ParseKeyReward(keys[7])}**`
+    keyString = `Rewards: **3** - Option 1: **${ParseKeyReward(keys[0])}** | Option 2: **${ParseKeyReward(keys[3])}** | Option 3: **${ParseKeyReward(keys[7])}**`
   }
   else if(keys.length >= 4){
-    keyString = `**Rewards:** 2 - Options: **${ParseKeyReward(keys[0])}** | **${ParseKeyReward(keys[3])}**`
+    keyString = `Rewards: **2** - Option 1: **${ParseKeyReward(keys[0])}** | Option 2: **${ParseKeyReward(keys[3])}** \n *time ${ 8 - keys.length} more key(s) for more choices.*`
   }
   else if(keys.length >= 1){
-    keyString = `**Rewards:** 1 - Option: **${ParseKeyReward(keys)}**`
+    keyString = `Rewards: **1** - Option 1: **${ParseKeyReward(keys)}**\n*time ${ 4 - keys.length} more key(s) for more choices.*`
   }
   else{
     keystring = 'No Keys completed this week :frowning:';
   }
   console.log(keyString);
-  return `Vault Choices:\n\n${keyString}`;
+  return `**__Vault Choices:__**\n\n${keyString}`;
 }
 //Retrives raw dungeon details, sorts it, prints it to the summary
 async function AddDungeon(charName, realm, region, axios, embedMessage, longName, displayName, dungeonCode, level, top5 = false) {
@@ -716,9 +713,10 @@ client.on('interactionCreate', async interaction => {
       let region = interaction.options.getString("region").toLocaleLowerCase();
       let realm = interaction.options.getString("realm").toLocaleLowerCase();
       let charName = interaction.options.getString("charactername").toLocaleLowerCase();
+      let show = interaction.options.getBoolean('show');
       let defaultDescription = `Displays your highest 10 keys you finished this week, provided by Raider.IO.`;
       console.log(`Parsed Message understood as: WeeklyKeys for Char: ${charName} on: ${realm} in: ${region}.`);
-      await interaction.deferReply();
+      await interaction.deferReply({ephemeral: !show});
       console.log("Requesting Weekly keys");
       let embedMessage = GetWeeklyKeysInitialResponse(region, defaultDescription);
       await interaction.editReply({ embeds: [embedMessage] });

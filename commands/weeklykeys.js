@@ -22,7 +22,11 @@ module.exports = {
             option.setName('charactername')
                 .setDescription('Warcraft CharacterName')
                 .setRequired(true)
-        ),    
+        ).addBooleanOption(option =>
+            option.setName('show')
+                .setDescription('Show this report publically')
+                .setRequired(false)
+        ),
 
 	async execute(interaction) {
         console.log('Received wcl');
