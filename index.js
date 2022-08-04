@@ -240,7 +240,15 @@ async function AddDungeon(charName, realm, region, axios, embedMessage, longName
     }
   }
   catch (e) {
-    embedMessage.addField(`${longName}:`, `:poop: No Data`, true);
+    embedMessage.addFields(
+      [
+        {
+          name:`${longName}:`,
+     value: `:poop: No Data`, 
+     inline: true
+        }
+      ]
+    );
     console.log(`Exception in add dungeon: ${e}`);
   }
   return embedMessage;
@@ -279,10 +287,30 @@ const Dungeons = {
   strt: 12441,
   gmbt: 12442
 }
-//looks up dungeon scores for the querying user§
-async function LookupDungeon(charName, realm, region, axios, dungeon) {
+
+async function LookupRecent(charName, realm, region, axios) {
   let charQuery = {
-    query: `{characterData{character(name: \"${charName}\", serverRegion:\"${region}\", serverSlug:\"${realm}\"){encounterRankings(byBracket: true, encounterID: ${dungeon}, metric: dps, compare: Rankings, includePrivateLogs:true, timeframe: Historical)}}}`
+    query: `{
+      characterData{
+        character(name: \"${charName}\", serverRegion:\"${region}\", serverSlug:\"${realm}\"){
+          recentReports(limit: 20){
+            data{
+              startTime,
+              fights(difficulty: 10,killType: Kills){
+                keystoneLevel,
+                kill,
+                name,
+                startTime,
+                keystoneBonus,
+                endTime,
+                keystoneAffixes,
+                
+              },
+            }			
+          }
+          }
+        }
+      }`
   };
   let config = {
     data: JSON.stringify(charQuery),
@@ -291,40 +319,20 @@ async function LookupDungeon(charName, realm, region, axios, dungeon) {
       'Content-Type': 'application/json'
     }
   };
+}
 
-
-  async function LookupRecent(charName, realm, region, axios) {
-    let charQuery = {
-      query: `{
-        characterData{
-          character(name: \"${charName}\", serverRegion:\"${region}\", serverSlug:\"${realm}\"){
-            recentReports(limit: 20){
-              data{
-                startTime,
-                fights(difficulty: 10,killType: Kills){
-                  keystoneLevel,
-                  kill,
-                  name,
-                  startTime,
-                  keystoneBonus,
-                  endTime,
-                  keystoneAffixes,
-                  
-                },
-              }			
-            }
-            }
-          }
-        }`
-    };
-    let config = {
-      data: JSON.stringify(charQuery),
-      headers: {
-        'Authorization': WCLToken,
-        'Content-Type': 'application/json'
-      }
-    };
-  }
+//looks up dungeon scores for the querying user§
+async function LookupDungeon(charName, realm, region, axios, dungeon) {
+  let charQuery = {
+    query: `{characterData{character(name: \"${charName}\", serverRegion:\"${region}\", serverSlug:\"${realm}\"){encounterRankings(byBracket: true, encounterID: ${dungeon}, metric: dps, partition: 3, compare: Rankings, includePrivateLogs:true, timeframe: Historical)}}}`
+  };
+  let config = {
+    data: JSON.stringify(charQuery),
+    headers: {
+      'Authorization': WCLToken,
+      'Content-Type': 'application/json'
+    }
+  };
 
   return await axios.post('https://www.warcraftlogs.com/api/v2/client',
     charQuery, config
@@ -365,9 +373,10 @@ async function LookupCharacter(charName, realm, region, axios) {
 //retrieves the character details from battlenet
 async function LookupBattlenetCharacter(charName, realm, region, axios) {
 
+  charName = charName.toLocaleLowerCase();
   let url = `https://${region}.api.blizzard.com/profile/wow/character/${realm}/${charName}?namespace=profile-${region}&locale=en_US&access_token=${BNETToken}`
-
-  return await axios.get(encodeURI(url)).then(res => {
+  let encodedURL = encodeURI(url);
+  return await axios.get(encodedURL).then(res => {
     return res.data;
   })
     .catch(error => {
@@ -493,6 +502,13 @@ function SetFooter(embedMessage) {
   });
   return embedMessage;
 }
+function SetErrorFooter(embedMessage,errorText) {
+  embedMessage.setFooter({
+    text: errorText,
+    iconURL: 'https://i.ibb.co/qx7zzzQ/squiggs.jpg',
+  });
+  return embedMessage;
+}
 
 function TimeSpanFromMS(ms) {
   let seconds = ms / 1000;
@@ -605,20 +621,34 @@ client.once('ready', () => {
 
 
 function AddActivity(Activity){
+  try{
+
+  
   let QueryString = `INSERT INTO ServerActivity (DateTime, ActivityType) VALUES ('${GetSafeSQLDate()}', '${Activity}')`;
   DBConnection.query(QueryString, function (err, result) {
     if (err) throw err;
     console.log("1 record inserted");
   });
 }
+  catch(ex){
+    console.log("Could not write to database " + ex);
+  }
+}
 
 
 function AddRequest(command,server,user){
+  try{
+
+  
   let QueryString = `INSERT INTO requests (command, datetime, server,user) VALUES ('${command}','${GetSafeSQLDate()}', '${server}', '${user}')`;
   DBConnection.query(QueryString, function (err, result) {
     if (err) throw err;
     console.log("1 record inserted");
   });
+}
+catch(ex){
+  console.log("Could not write to database " + ex);
+}
 }
 
 
@@ -656,7 +686,7 @@ client.on('interactionCreate', async interaction => {
 
       let region = interaction.options.getString("region").toLocaleLowerCase();
       let realm = interaction.options.getString("realm").toLocaleLowerCase();
-      let charName = interaction.options.getString("charactername").toLocaleLowerCase();
+      let charName = interaction.options.getString("charactername");
       let reportType = interaction.options.getString("reporttype");
       let level = interaction.options.getInteger("level");
 
@@ -743,7 +773,7 @@ client.on('interactionCreate', async interaction => {
     else if (interaction.commandName === 'weeklykeys') {
       let region = interaction.options.getString("region").toLocaleLowerCase();
       let realm = interaction.options.getString("realm").toLocaleLowerCase();
-      let charName = interaction.options.getString("charactername").toLocaleLowerCase();
+      let charName = interaction.options.getString("charactername");
       let show = interaction.options.getBoolean('show');
       let defaultDescription = `Displays your highest 10 keys you finished this week, provided by Raider.IO.`;
       console.log(`Parsed Message understood as: WeeklyKeys for Char: ${charName} on: ${realm} in: ${region}.`);
@@ -799,14 +829,13 @@ client.on('interactionCreate', async interaction => {
     .setTitle('Mythic Plus Bot');
 
     embed.setDescription("Failed to perform task: " + error);
-    embed.setDescription("Failed to perform task: " + error);
 
     if(interaction.deferred || interaction.replied){
-      await interaction.editReply({embeds:[embed]});
+      await interaction.followUp({embeds:[embed],ephemeral: true});
     }
     else{
 
-      await interaction.reply({embeds: [embed] });
+      await interaction.followUp({embeds: [embed],ephemeral: true });
     }
     
   }
@@ -821,9 +850,14 @@ DBConnection = mysql.createConnection({
 });
 
 DBConnection.connect(function(err) {
-  if (err) throw err;
-  console.log("Database Connected!");
-  AddActivity("Server Startup");
+  if (err){
+    console.log("Database Connection error: " + err);
+  }
+  else{
+    console.log("Database Connected!");
+    AddActivity("Server Startup");
+  }
+ 
 });
 
 
