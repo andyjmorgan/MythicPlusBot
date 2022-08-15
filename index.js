@@ -12,6 +12,7 @@ const { threadId } = require('node:worker_threads');
 const { waitForDebugger } = require('node:inspector');
 const wait = require('node:timers/promises').setTimeout;
 var mysql = require('mysql');
+const RaiderIO = require('./lib/RaiderIO');
 
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -132,6 +133,21 @@ function SortDungeon(encounterRanking, name, dungeoncode, level) {
     HighestRuns: rankarr
   };
 }
+
+function GetCovenantIcon(Covenant){
+  Covenant = Covenant.toLocaleLowerCase();
+  switch(Covenant){
+    case "kyrian":
+      return Covenants.kyrian;
+      case "necrolord":
+        return Covenant.necrolord;
+      case "venthyr":
+        return Covenants.venthyr;
+      case "nightfae":
+        return Covenants.nightfae;
+  }
+};
+
 //formats the character data in the response
 function FormatCharData(defaultDescription, charSummary, realm, region, ioscore, top3) {
 
@@ -144,15 +160,31 @@ function FormatCharData(defaultDescription, charSummary, realm, region, ioscore,
     else {
       name = charSummary.name;
     }
-    let nameLine = `\nName: **[${name}](https://warcraftlogs.com/character/${region}/${realm}/${charSummary.name}?zone=25#bybracket=1&private=1&metric=dps)**`;
+
+    let factionIcon="";
+    if(charSummary.faction.type === 'HORDE'){
+      factionIcon = Factions.horde;
+    } 
+    else{
+      factionIcon = Factions.alliance;
+    }
+
+    let CovenantIcon = GetCovenantIcon(charSummary.covenant_progress.chosen_covenant.name);
+
+    let nameLine = `\n${factionIcon} **[${name}](https://warcraftlogs.com/character/${region}/${realm}/${charSummary.name}?zone=25#bybracket=1&private=1&metric=dps)**${CovenantIcon}`;
+    //let guildLine =`\n<${charSummary.guild.name}>`
+    let detailsLine = `\n ${charSummary.race.name} ${charSummary.active_spec.name} ${charSummary.character_class.name}`
     let ioLine = `\nM+ Score: **${ioscore}**`
-    let bodyLine = `\nFaction/Race/Gender: **${charSummary.faction.name}/${charSummary.race.name}/${charSummary.gender.name}**`;
-    let classLine = `\nClass/Active Spec: **${charSummary.character_class.name}/${charSummary.active_spec.name}**`;
+    // let bodyLine = `\nFaction/Race/Gender: **${charSummary.faction.name}/${charSummary.race.name}/${charSummary.gender.name}**`;
+    // let classLine = `\nClass/Active Spec: **${charSummary.character_class.name}/${charSummary.active_spec.name}**`;
+    let LinkLine = `\n [${ExternalEmoji.wow}](https://worldofwarcraft.com/character/${region}/${realm}/${charSummary.name})  [${ExternalEmoji.rio}](https://raider.io/characters/${region}/${realm}/${charSummary.name})  [${ExternalEmoji.wcl}](https://warcraftlogs.com/character/${region}/${realm}/${charSummary.name}?zone=25#bybracket=1&private=1&metric=dps)`
     let header = "**__Top Parse:__**";
     if (top3) {
       header = "**__Top 3 Parses:__**";
     }
-    return `${defaultDescription}\n\n**__Character Data:__**\n\n${nameLine}${ioLine}${bodyLine}${classLine}\n\n${header}\n\n\n`;
+    //return `${defaultDescription}\n\n**__Character Data:__**\n\n${nameLine}${ioLine}${bodyLine}${classLine}\n\n${header}\n\n\n`;
+    return `${defaultDescription}\n\n**__Character Data:__**\n\n${nameLine}${detailsLine}${ioLine}${LinkLine}\n\n${header}\n\n\n`;
+
   }
   else {
     return `${defaultDescription}\n\n**Character data is out of date or unavailable, update it!**\n\n**__Top Parse:__**\n\n\n`;
@@ -169,7 +201,7 @@ function FormatRaiderIOData(defaultDescription, faction, race, gender, cclass, s
 //https://www.icy-veins.com/wow/great-vault-the-shadowlands-weekly-chest
 
 function ParseKeyReward(key){
-  let base = 252;
+  let base = 278;
   switch(key){
     case 1,2,3,4:
       return base;
@@ -218,20 +250,25 @@ function AddWeeklyKeysSummary(keys){
   return `**__Vault Choices:__**\n\n${keyString}`;
 }
 //Retrives raw dungeon details, sorts it, prints it to the summary
-async function AddDungeon(charName, realm, region, axios, embedMessage, longName, displayName, dungeonCode, level, top5 = false) {
+async function AddDungeon(charName, realm, region, axios, embedMessage, longName, displayName, dungeonCode, level, metric, top5 = false) {
   try {
-    var rawDungeon = await LookupDungeon(charName, realm, region, axios, dungeonCode);
+    var rawDungeon = await LookupDungeon(charName, realm, region, axios, dungeonCode, metric);
     var dungeonDetails = SortDungeon(rawDungeon, longName, dungeonCode, level);
+
+    var reportType = "damage-done";
+    if(metric.toLocaleLowerCase() === "hps"){
+      reportType = "healing";
+    }
     if (!top5) {
-      embedMessage.addFields([{name:`${longName}:`, 
-      value: `[${dungeonDetails.Best.Level}](https://www.warcraftlogs.com/reports/${dungeonDetails.Best.Code}#fight=${dungeonDetails.Best.FightID}&type=damage-done) | ${PrintDps(dungeonDetails.Best.amount)} | ${RankScore(dungeonDetails.Best.Rank)} ${dungeonDetails.Best.Rank} %`, 
+      embedMessage.addFields([{name:`${TrimDungeonName(longName)}:`, 
+      value: `[${dungeonDetails.Best.Level}](https://www.warcraftlogs.com/reports/${dungeonDetails.Best.Code}#fight=${dungeonDetails.Best.FightID}&type=${reportType}) | ${PrintDps(dungeonDetails.Best.amount)} | ${RankScore(dungeonDetails.Best.Rank)} ${dungeonDetails.Best.Rank} %`, 
       inline: true
     }]);
     }
     else {
       let DungeonString = "";
       dungeonDetails.HighestRuns.forEach(run => {
-        DungeonString = `${DungeonString}[${run.keyLevel}](https://www.warcraftlogs.com/reports/${run.report.code}#fight=${run.report.fightID}&type=damage-done) | ${PrintDps(run.amount)} | ${RankScore(run.rank)} ${run.rank} %\n`
+        DungeonString = `${DungeonString}[${run.keyLevel}](https://www.warcraftlogs.com/reports/${run.report.code}#fight=${run.report.fightID}&type=${reportType}) | ${PrintDps(run.amount)} | ${RankScore(run.rank)} ${run.rank} %\n`
       });
       embedMessage.addFields([{
         name:`${longName}:`,
@@ -288,6 +325,50 @@ const Dungeons = {
   gmbt: 12442
 }
 
+const S4Dungeons = {
+  id: 61195,
+  gd: 61208,
+  lwkz: 61651,
+  upkz: 61652,
+  omj: 62097,
+  omw: 62098,
+  strt: 62441,
+  gmbt: 62442
+}
+
+const Factions={
+  horde:'<:h_:988491122915565668>',
+  alliance: '<:a_:988491121397211208>'
+}
+
+const Covenants={
+  necrolord: '<:nec:1008707018938392687>',
+  kyrian: '<:kyr:1008707017495547925>',
+  venthyr: '<:ven:1008707020267991140>',
+  nightfae: '<:fae:1008707016371474442>'
+}
+const ExternalEmoji={
+  wcl: '<:wcl:1008706173773557822>',
+  rio:'<:rio:1008706009231015967>',
+  wow: '<:wow:1008706175296098375>'
+
+}
+
+const Classes={
+  demonHunter:'<:dh:988493956318892032>',
+  deathKnight:'<:dk:988493957715603516>',
+  druid:'<:dr:988493958634176583>',
+  hunter:'<:hu:988493960051826749>',
+  warlock:'<:l_:988493967832260658>',
+  mage:'<:ma:988493961108783194>',
+  monk:'<:mo:988493962161565756>',
+  paladin:'<:p_:988493963445039194>',
+  rogue:'<:r_:988493965038870598>',
+  shaman:'<:s_:988493966687215646>',
+  warrior:'<:w_:988493968977330267>',
+  priest:'<:pr:1006581199252234290>'
+}
+
 async function LookupRecent(charName, realm, region, axios) {
   let charQuery = {
     query: `{
@@ -322,9 +403,10 @@ async function LookupRecent(charName, realm, region, axios) {
 }
 
 //looks up dungeon scores for the querying user§
-async function LookupDungeon(charName, realm, region, axios, dungeon) {
+async function LookupDungeon(charName, realm, region, axios, dungeon, metric) {
+  
   let charQuery = {
-    query: `{characterData{character(name: \"${charName}\", serverRegion:\"${region}\", serverSlug:\"${realm}\"){encounterRankings(byBracket: true, encounterID: ${dungeon}, metric: dps, partition: 3, compare: Rankings, includePrivateLogs:true, timeframe: Historical)}}}`
+    query: `{characterData{character(name: \"${charName}\", serverRegion:\"${region}\", serverSlug:\"${realm}\"){encounterRankings(byBracket: true, encounterID: ${dungeon}, metric: ${metric.toLocaleLowerCase()}, compare: Rankings, includePrivateLogs:true, timeframe: Historical)}}}`
   };
   let config = {
     data: JSON.stringify(charQuery),
@@ -338,6 +420,7 @@ async function LookupDungeon(charName, realm, region, axios, dungeon) {
     charQuery, config
   ).then(res => {
     let details = res.data
+    //console.log(details.data.characterData.character.encounterRankings);
     return details.data.characterData.character.encounterRankings;
 
   })
@@ -377,6 +460,7 @@ async function LookupBattlenetCharacter(charName, realm, region, axios) {
   let url = `https://${region}.api.blizzard.com/profile/wow/character/${realm}/${charName}?namespace=profile-${region}&locale=en_US&access_token=${BNETToken}`
   let encodedURL = encodeURI(url);
   return await axios.get(encodedURL).then(res => {
+    console.log(res.data);
     return res.data;
   })
     .catch(error => {
@@ -424,9 +508,9 @@ async function LookupBattlenetCharMythicPlus(url) {
 function PrintDps(dpsNum) {
   return `${Number.parseFloat(dpsNum / 1000).toFixed(1)}k`;
 }
-function GetInitialResponseToQuery(level) {
+function GetInitialResponseToQuery(level, metric) {
   //Set the default description of the response
-  let defaultDescription = `Displays your top DPS parses above keystone level ${level} per dungeon, by bracket. In order for this to work, you must have valid warcraft logs for your Mythic + dungeon runs.`;
+  let defaultDescription = `Displays your top ${metric} parses above keystone level ${level} per dungeon, by bracket. In order for this to work, you must have valid warcraft logs for your Mythic + dungeon runs.`;
 
   // Setting default response colour.
   return new EmbedBuilder()
@@ -466,11 +550,19 @@ function GetWeeklyKeysInitialResponse(defaultDescription) {
     .setTitle('Highest Weekly Mythic+ runs')
     .setDescription(defaultDescription)
 }
-async function GetBattleNetResponse(region, realm, charName, embedMessage, level, showTop3) {
+function GetGuildLeaderBoardInitialResponse(guild,region,realm,role){
+  // Setting default response colour.
+  return new EmbedBuilder()
+    .setColor('#0099ff')
+    .setTitle(`M+ Leader board from Raider.IO:`)
+    .setDescription(`This is a snapshot of the M+ score leader Board for [<${guild}>](https://raider.io/guilds/${region}/${realm}/${encodeURI(guild)}) on ${region} - ${realm}.\n\nThis Leader board is filtered by spec: (${role}):`)
+    .setThumbnail("https://cdnassets.raider.io/images/brand/Icon_FullColor.png")
+}
+async function GetBattleNetResponse(region, realm, charName, embedMessage, level, showTop3, metric) {
 
   try {
 
-    let defaultDescription = `Displays your top DPS parses above keystone level ${level} per dungeon, by bracket. In order for this to work, you must have valid warcraft logs for your Mythic + dungeon runs.`;
+    let defaultDescription = `Displays your historical top ranking ${metric.toUpperCase()} parses above keystone level ${level} per dungeon, by bracket. In order for this to work, you must have valid warcraft logs for your Mythic + dungeon runs.`;
     console.log("Requesting BattleNet char data");
     var bnetCharData = await LookupBattlenetCharacter(charName, realm, region, axios);
 
@@ -537,87 +629,6 @@ client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}!`);
 });
 
-// client.on('message', async msg => {
-
-//   // only answer to queries starting with !wcl
-//   if (msg.content.toLowerCase().startsWith('!wcl')) {
-//     console.log(`received: ${msg.content}`);
-
-//     CharQueries += 1;
-
-//     await CheckTokens();
-
-
-
-//     // if the message is received via DM, respond via DM
-//     let isDM = false;
-//     if (msg.channel.type == 'DM') {
-//       isDM = true;
-//     }
-
-//     // split and digest request
-//     var stringArray = msg.content.split(' ');
-//     if (stringArray.length >= 4) {
-//       const region = stringArray[1].toLowerCase();
-//       const realm = stringArray[2].toLowerCase();
-//       const charName = stringArray[3].toLowerCase();
-//       let level = stringArray[4];
-//       if (!level) {
-//         level = 15;
-//       }
-//       let showTop3 = false;
-//       let top3 = stringArray[5];
-//       if (top3) {
-//         if (top3 == 'top3') {
-//           showTop3 = true;
-//         }
-//       }
-
-//       console.log(`Parsed Message understood as: Char: ${charName} on: ${realm} in: ${region} for Level: ${level} Top3?: ${top3}`);
-
-//       //Set the default description of the response
-//       let embedMessage = GetInitialResponseToQuery(level);
-
-//       // initial message built, do we respond in channel or DM?
-//       var msg;
-//       if (isDM) {
-//         msg = await msg.author.send({ embeds: [embedMessage] });
-//       }
-//       else {
-//         msg = await msg.reply({ embeds: [embedMessage] });
-//       }
-//       embedMessage = await GetBattleNetResponse(region, realm, charName, embedMessage, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       console.log("Requesting Warcraft Logs Data");
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "De Other Side", "DoS", Dungeons.dos, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Mists of Tirna Scithe", "Mists", Dungeons.mist, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Halls of Atonement", "HoA", Dungeons.hoa, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Sanguine Depths", "SD", Dungeons.sd, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Plaguefall", "PF", Dungeons.pf, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Theater of Pain", "ToP", Dungeons.top, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Necrotic Wake", "NW", Dungeons.nw, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Spires of Ascension", "SoA", Dungeons.soa, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Streets of Wonder", "Streets", Dungeons.strt, level, showTop3);
-//       msg.edit({ embeds: [embedMessage] });
-//       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "So'Leah's Gambit", "Gambit", Dungeons.gmbt, level, showTop3);
-//       embedMessage.setFooter({
-//         text: 'Made by Andy#0761',
-//         iconURL: 'https://i.ibb.co/qx7zzzQ/squiggs.jpg',
-//       });
-//       msg.edit({ embeds: [embedMessage] });
-//       console.log("Awaiting Next");
-//     }
-//   }
-// });
-
 
 
 function AddActivity(Activity){
@@ -659,6 +670,55 @@ function GetSafeSQLDate(){
 }
 
 
+function TrimDungeonName(dungeon){
+  return dungeon.replace('Tazavesh: ','').replace('Mechagon ','');
+}
+
+function GetClassIcon(className){
+  let classEmoji ="";
+  switch(className){
+    case "Priest":
+      classEmoji = Classes.priest;
+        break;
+      case "Demon Hunter":
+        classEmoji = Classes.demonHunter;
+        break;
+      case "Death Knight":
+        classEmoji = Classes.deathKnight;
+        break;
+      case "Druid":
+        classEmoji = Classes.druid;
+        break;
+      case "Hunter":
+        classEmoji = Classes.hunter;
+        break;
+      case "Warlock":
+        classEmoji = Classes.warlock;
+        break;
+      case "Mage":
+        classEmoji = Classes.mage;
+        break;
+      case "Monk":
+        classEmoji = Classes.monk;
+        break;
+      case "Paladin":
+        classEmoji = Classes.paladin;
+        break;
+      case "Rogue":
+        classEmoji = Classes.rogue;
+        break;
+      case "Shaman":
+        classEmoji = Classes.shaman;
+        break;
+      case "Warrior":
+        classEmoji = Classes.warrior;
+        break;
+    default:
+      break;
+  };
+
+  return classEmoji;
+}
 
 
 client.on('interactionCreate', async interaction => {
@@ -689,9 +749,12 @@ client.on('interactionCreate', async interaction => {
       let charName = interaction.options.getString("charactername");
       let reportType = interaction.options.getString("reporttype");
       let level = interaction.options.getInteger("level");
-
+      let metric = interaction.options.getString("metric");
       let showTop3 = false;
 
+      if(metric == null){
+        metric = "dps";
+      }
       if (level == null) {
         level = 15;
       }
@@ -704,42 +767,68 @@ client.on('interactionCreate', async interaction => {
         showTop3 = true;
       }
 
-      console.log(`Parsed Message understood as: Parses for Char: ${charName} on: ${realm} in: ${region} for Level: ${level} Report?: ${reportType}`);
+      console.log(`Parsed Message understood as: Parses for Char: ${charName} on: ${realm} in: ${region} for Level: ${level} Report?: ${reportType} with Metric?: ${metric}`);
       await interaction.deferReply();
-      let embedMessage = GetInitialResponseToQuery(level);
+      let embedMessage = GetInitialResponseToQuery(level, metric);
       
-      embedMessage = await GetBattleNetResponse(region, realm, charName, embedMessage, level, showTop3);
+      embedMessage = await GetBattleNetResponse(region, realm, charName, embedMessage, level, showTop3, metric);
       await interaction.editReply({ embeds: [embedMessage] });
       
       console.log("Requesting Warcraft Logs Data");
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "De Other Side", "DoS", Dungeons.dos, level, showTop3);  
+     
+     //s3 data:
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "De Other Side", "DoS", Dungeons.dos, level, showTop3);  
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Mists of Tirna Scithe", "Mists", Dungeons.mist, level, showTop3);   
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Halls of Atonement", "HoA", Dungeons.hoa, level, showTop3);  
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Sanguine Depths", "SD", Dungeons.sd, level, showTop3);      
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Plaguefall", "PF", Dungeons.pf, level, showTop3);    
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Theater of Pain", "ToP", Dungeons.top, level, showTop3);     
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Necrotic Wake", "NW", Dungeons.nw, level, showTop3);     
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Spires of Ascension", "SoA", Dungeons.soa, level, showTop3);    
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Streets of Wonder", "Streets", Dungeons.strt, level, showTop3); 
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      // embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "So'Leah's Gambit", "Gambit", Dungeons.gmbt, level, showTop3);
+      // await interaction.editReply({ embeds: [embedMessage] });
+
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Iron Docks", "ID", S4Dungeons.id, level, metric, showTop3);  
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Mists of Tirna Scithe", "Mists", Dungeons.mist, level, showTop3);   
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Grimrail Depot", "GD", S4Dungeons.gd, level,metric, showTop3);   
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Halls of Atonement", "HoA", Dungeons.hoa, level, showTop3);  
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Lower Karazhan", "LK", S4Dungeons.lwkz, level, metric, showTop3);  
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Sanguine Depths", "SD", Dungeons.sd, level, showTop3);      
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Upper Karazhan", "UK", S4Dungeons.upkz, level, metric, showTop3);      
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Plaguefall", "PF", Dungeons.pf, level, showTop3);    
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Mechagon JunkYard", "MJ", S4Dungeons.omj, level, metric, showTop3);    
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Theater of Pain", "ToP", Dungeons.top, level, showTop3);     
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Mechagon Workshop", "MW", S4Dungeons.omw, level, metric, showTop3);     
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Necrotic Wake", "NW", Dungeons.nw, level, showTop3);     
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Streets of Wonder", "Streets", S4Dungeons.strt, level, metric, showTop3); 
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Spires of Ascension", "SoA", Dungeons.soa, level, showTop3);    
-      await interaction.editReply({ embeds: [embedMessage] });
-
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Streets of Wonder", "Streets", Dungeons.strt, level, showTop3); 
-      await interaction.editReply({ embeds: [embedMessage] });
-
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "So'Leah's Gambit", "Gambit", Dungeons.gmbt, level, showTop3);
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "So'Leah's Gambit", "Gambit", S4Dungeons.gmbt, level, metric, showTop3);
       await interaction.editReply({ embeds: [embedMessage] });
 
       embedMessage = SetFooter(embedMessage);
@@ -759,7 +848,7 @@ client.on('interactionCreate', async interaction => {
       Affixes.affix_details.forEach(affix => {
         embedMessage.addFields(
           [
-            {name: affix.name, 
+            {name: `${affix.name}:`, 
               value:`${affix.description}... [Details](${affix.wowhead_url})`, 
               inline: true
             }
@@ -802,7 +891,7 @@ client.on('interactionCreate', async interaction => {
   
           embedMessage.addFields(
             [{ 
-            name: `${weekly.dungeon.replace('Tazavesh: ','')}:`, 
+            name: `${TrimDungeonName(weekly.dungeon)}:`, 
           value: `${message}`,
           inline: true
           }]
@@ -816,6 +905,144 @@ client.on('interactionCreate', async interaction => {
 
       embedMessage = SetFooter(embedMessage);
       await interaction.editReply({ embeds: [embedMessage] });
+    }
+
+    else if(interaction.commandName === 'guildleaderboard'){
+      await interaction.deferReply({ephemeral: true});
+
+      let region = interaction.options.getString("region").toLocaleLowerCase();
+      let realm = interaction.options.getString("realm").toLocaleLowerCase();
+      let guildname = interaction.options.getString("guildname");
+      let role = interaction.options.getString("role");
+
+      if(role == null){
+        role = "all";
+      }
+      console.log(`Parsed Message understood as: guild leaderboard for guild: ${guildname} on: ${realm} in: ${region} with role: ${role}`);
+      let FormattedRoster =[];
+      let Roster = await RaiderIO.GetGuildLeaderBoard(region,realm,guildname);
+
+      let embedMessage = GetGuildLeaderBoardInitialResponse(guildname, region, realm, role);
+      await interaction.editReply({ embeds: [embedMessage] });
+
+      Roster.forEach(member=>{
+        if(member.character != null){
+          if(member.keystoneScores != null){
+            if(member.character.items != null){
+              if(member.keystoneScores.allScore > 0){
+                let char = {
+                  name: member.character.name,
+                  class: `${member.character.spec.name}`,
+                  role: member.character.spec.role,
+                  isMelee: member.character.spec.is_melee,
+                  iLVL: member.character.items.item_level_equipped,
+                  score: member.keystoneScores.allScore,
+                  emojii: ""
+                };
+                // switch(member.character.class.name){
+                //   case "Priest":
+                //       char.emojii = Classes.priest;
+                //       break;
+                //     case "Demon Hunter":
+                //       char.emojii = Classes.demonHunter;
+                //       break;
+                //     case "Death Knight":
+                //       char.emojii = Classes.deathKnight;
+                //       break;
+                //     case "Druid":
+                //       char.emojii = Classes.druid;
+                //       break;
+                //     case "Hunter":
+                //       char.emojii = Classes.hunter;
+                //       break;
+                //     case "Warlock":
+                //       char.emojii = Classes.warlock;
+                //       break;
+                //     case "Mage":
+                //       char.emojii = Classes.mage;
+                //       break;
+                //     case "Monk":
+                //       char.emojii = Classes.monk;
+                //       break;
+                //     case "Paladin":
+                //       char.emojii = Classes.paladin;
+                //       break;
+                //     case "Rogue":
+                //       char.emojii = Classes.rogue;
+                //       break;
+                //     case "Shaman":
+                //       char.emojii = Classes.shaman;
+                //       break;
+                //     case "Warrior":
+                //       char.emojii = Classes.warrior;
+                //       break;
+                //   default:
+                //     break;
+                // };
+                     
+                char.emojii = GetClassIcon(member.character.class.name);
+               
+                FormattedRoster.push(char);
+              }           
+            }
+            else{
+              console.log("items empty");
+            }
+          }
+          else{
+            console.log("Keystone scores empty, ignoring");
+          }
+        }
+        else{
+          console.log("Char data empty, ignoring");
+        }
+      });
+
+      switch(role){
+        case "rdps":
+        FormattedRoster = FormattedRoster.filter(obj=>{
+          return obj.role === "dps" && 
+            obj.isMelee == false});
+            break;
+        case "mdps":
+          FormattedRoster = FormattedRoster.filter(obj=>{
+            return obj.role === "dps" && 
+            obj.isMelee == true});
+            break;
+        case "healer":
+          FormattedRoster = FormattedRoster.filter(obj=>{
+            return obj.role === "healer"});
+            break;
+        case "tank":
+          FormattedRoster = FormattedRoster.filter(obj=>{
+            return obj.role === "tank"});
+            break;
+          
+        default:
+           break;
+          };
+      
+      let results = FormattedRoster.sort((firstItem, secondItem) => firstItem.score - secondItem.score).reverse().slice(0,15);
+      
+      let count =1;
+      results.forEach(result=>{
+
+        embedMessage.addFields({
+          name: `#${count} - ${result.emojii} ${result.name}`,
+          value: 
+`IO Score: [**${result.score}**](https://raider.io/characters/${region}/${realm}/${encodeURI(result.name)})
+ilvl: **${result.iLVL}**
+Role: **${result.role}**`,
+                  inline: true
+        }
+        );
+        count++;
+      });
+
+      //let message = JSON.stringify(results);
+      //embedMessage.setDescription(Classes.druid);
+      await interaction.editReply({ embeds: [embedMessage] });
+
     }
 
     else {

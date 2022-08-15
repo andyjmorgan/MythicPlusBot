@@ -2,8 +2,9 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 
 module.exports = {
 	data: new SlashCommandBuilder()
-		.setName('affixes')
-		.setDescription('Retrieves this weeks affixes').addStringOption(option=>
+		.setName('addguild')
+		.setDescription('Sets the guild information for leaderboard purposes')
+        .addStringOption(option=>
             option.setName('region')
                 .setDescription('WoW Region')
                 .setRequired(true)
@@ -11,9 +12,14 @@ module.exports = {
                     {name: 'eu', value: 'EU'},
                     {name: 'us', value: 'US'}
                 )
+        )
+        .addStringOption(option=> 
+            option.setName('guild')
+            .setDescription('guild name')
+            .setRequired(true)
         ),
 	async execute(interaction) {
-        console.log('Received affixes');
+        console.log('Received add guild');
 		//await interaction.reply('Not right now!');
 	},
 };

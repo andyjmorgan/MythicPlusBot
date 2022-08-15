@@ -33,6 +33,15 @@ module.exports = {
                 )
                 .setRequired(false)
         )
+        .addStringOption(option =>
+            option.setName('metric')
+                .setDescription('Choose the metric type you would like (HPS / DPS)')
+                .addChoices(
+                    {name: 'hps', value: 'HPS'},
+                    {name: 'dps', value: 'DPS'}
+                )
+                .setRequired(false)
+        )
         .addIntegerOption(option=>
             option.setName('level')
                 .setDescription('Minimum key level')
