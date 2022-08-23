@@ -28,8 +28,7 @@ module.exports = {
                 .setDescription('Choose the report type you would like')
                 .addChoices(
                     {name: 'best', value: 'Best'},
-                    {name: 'top3', value: 'Top3'},
-                    {name: 'highest', value: 'Highest'}
+                    {name: 'top3', value: 'Top3'}
                 )
                 .setRequired(false)
         )

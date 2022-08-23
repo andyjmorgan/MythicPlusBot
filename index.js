@@ -13,6 +13,8 @@ const { waitForDebugger } = require('node:inspector');
 const wait = require('node:timers/promises').setTimeout;
 var mysql = require('mysql');
 const RaiderIO = require('./lib/RaiderIO');
+const WarcraftLogs = require('./lib/WarcraftLogs');
+const { LookupRecentPlayerReports, GetExplosiveCount } = require('./lib/WarcraftLogs');
 
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -143,13 +145,30 @@ function GetCovenantIcon(Covenant){
         return Covenant.necrolord;
       case "venthyr":
         return Covenants.venthyr;
-      case "nightfae":
+      case "night fae":
         return Covenants.nightfae;
   }
 };
 
+function AddFooterEmbed(embedMessage, region, realm, name){
+  embedMessage.addFields({
+    name: `** **`,
+    value: `${ExternalEmoji.wow} [Armory](${GetCharWOWLink(region,realm,name)}) | ${ExternalEmoji.rio} [Raider.IO](${GetCharRIOLink(region,realm,name)}) | ${ExternalEmoji.wcl} [Warcraft Logs](${GetCharWCLLink(region,realm,name)})`,
+    inline: false
+  });
+}
+
+function GetCharWCLLink(region,realm,name){
+  return `https://warcraftlogs.com/character/${region}/${realm}/${name}?zone=25#bybracket=1&private=1&metric=dps`
+}
+function GetCharRIOLink(region,realm,name){
+  return `https://raider.io/characters/${region}/${realm}/${name}`;
+}
+function GetCharWOWLink(region,realm,name){
+  return `https://worldofwarcraft.com/character/${region}/${realm}/${name}`;
+}
 //formats the character data in the response
-function FormatCharData(defaultDescription, charSummary, realm, region, ioscore, top3) {
+function FormatCharData( charSummary, realm, region, ioscore) {
 
   if (charSummary) {
 
@@ -171,23 +190,16 @@ function FormatCharData(defaultDescription, charSummary, realm, region, ioscore,
 
     let CovenantIcon = GetCovenantIcon(charSummary.covenant_progress.chosen_covenant.name);
 
-    let nameLine = `\n${factionIcon} **[${name}](https://warcraftlogs.com/character/${region}/${realm}/${charSummary.name}?zone=25#bybracket=1&private=1&metric=dps)**${CovenantIcon}`;
-    //let guildLine =`\n<${charSummary.guild.name}>`
-    let detailsLine = `\n ${charSummary.race.name} ${charSummary.active_spec.name} ${charSummary.character_class.name}`
+    let nameLine = `\n**[${name}](${GetCharWCLLink(region,realm,charSummary.name)})** ${factionIcon} ${GetClassIcon(charSummary.character_class.name)}`;
+    let detailsLine = `\n ${charSummary.covenant_progress.chosen_covenant.name} ${charSummary.race.name} ${charSummary.active_spec.name} ${charSummary.character_class.name}`
+    let ilvlLine = `\nilvl: **${charSummary.equipped_item_level}-${charSummary.average_item_level}**`
     let ioLine = `\nM+ Score: **${ioscore}**`
-    // let bodyLine = `\nFaction/Race/Gender: **${charSummary.faction.name}/${charSummary.race.name}/${charSummary.gender.name}**`;
-    // let classLine = `\nClass/Active Spec: **${charSummary.character_class.name}/${charSummary.active_spec.name}**`;
-    let LinkLine = `\n [${ExternalEmoji.wow}](https://worldofwarcraft.com/character/${region}/${realm}/${charSummary.name})  [${ExternalEmoji.rio}](https://raider.io/characters/${region}/${realm}/${charSummary.name})  [${ExternalEmoji.wcl}](https://warcraftlogs.com/character/${region}/${realm}/${charSummary.name}?zone=25#bybracket=1&private=1&metric=dps)`
-    let header = "**__Top Parse:__**";
-    if (top3) {
-      header = "**__Top 3 Parses:__**";
-    }
-    //return `${defaultDescription}\n\n**__Character Data:__**\n\n${nameLine}${ioLine}${bodyLine}${classLine}\n\n${header}\n\n\n`;
-    return `${defaultDescription}\n\n**__Character Data:__**\n\n${nameLine}${detailsLine}${ioLine}${LinkLine}\n\n${header}\n\n\n`;
+  
+    return `\n**__Character Data:__**\n${nameLine}${detailsLine}${ioLine}${ilvlLine}\n\n`;
 
   }
   else {
-    return `${defaultDescription}\n\n**Character data is out of date or unavailable, update it!**\n\n**__Top Parse:__**\n\n\n`;
+    return `\n**Character data is out of date or unavailable, update it!**\n\n**__Top Parse:__**\n\n`;
   }
 }
 
@@ -238,10 +250,10 @@ function AddWeeklyKeysSummary(keys){
     keyString = `Rewards: **3** - Option 1: **${ParseKeyReward(keys[0])}** | Option 2: **${ParseKeyReward(keys[3])}** | Option 3: **${ParseKeyReward(keys[7])}**`
   }
   else if(keys.length >= 4){
-    keyString = `Rewards: **2** - Option 1: **${ParseKeyReward(keys[0])}** | Option 2: **${ParseKeyReward(keys[3])}** \n *time ${ 8 - keys.length} more key(s) for more choices.*`
+    keyString = `Rewards: **2** - Option 1: **${ParseKeyReward(keys[0])}** | Option 2: **${ParseKeyReward(keys[3])}** \n *time **${ 8 - keys.length}** more key(s) for three choices.*`
   }
   else if(keys.length >= 1){
-    keyString = `Rewards: **1** - Option 1: **${ParseKeyReward(keys)}**\n*time ${ 4 - keys.length} more key(s) for more choices.*`
+    keyString = `Rewards: **1** - Option 1: **${ParseKeyReward(keys)}**\n*time **${ 4 - keys.length}** more key(s) for two choices and **${ 8 - keys.length}** more key(s) for three choices.*`
   }
   else{
     keystring = 'No Keys completed this week :frowning:';
@@ -541,6 +553,18 @@ function GetAffixesInitialResponse(region) {
     .setDescription(defaultDescription)
     .setThumbnail("https://cdnassets.raider.io/images/brand/Icon_FullColor.png")
 }
+
+function GetExplosiveInitialResponse() {
+  let defaultDescription = `Explosive week is back, baby! Show off your multitasking and quick fire fingers by logging your Mythic plus adventures. this report will find all of your recent explosive runs and show your performance!\n
+  *Explosives are a group responsibility! not just the healers!* - **Yeah right**`;
+
+  // Setting default response colour.
+  return new EmbedBuilder()
+    .setColor('#0099ff')
+    .setTitle('Mythic Plus Explosives!')
+    .setDescription(defaultDescription)
+    .setThumbnail("https://cdnassets.raider.io/images/wow/icons/large/spell_fire_felflamering_red.jpg")
+}
 function GetWeeklyKeysInitialResponse(defaultDescription) {
 
 
@@ -558,11 +582,10 @@ function GetGuildLeaderBoardInitialResponse(guild,region,realm,role){
     .setDescription(`This is a snapshot of the M+ score leader Board for [<${guild}>](https://raider.io/guilds/${region}/${realm}/${encodeURI(guild)}) on ${region} - ${realm}.\n\nThis Leader board is filtered by spec: (${role}):`)
     .setThumbnail("https://cdnassets.raider.io/images/brand/Icon_FullColor.png")
 }
-async function GetBattleNetResponse(region, realm, charName, embedMessage, level, showTop3, metric) {
+async function AddBattleNetData(defaultdescription, region, realm, charName, embedMessage, header) {
 
   try {
 
-    let defaultDescription = `Displays your historical top ranking ${metric.toUpperCase()} parses above keystone level ${level} per dungeon, by bracket. In order for this to work, you must have valid warcraft logs for your Mythic + dungeon runs.`;
     console.log("Requesting BattleNet char data");
     var bnetCharData = await LookupBattlenetCharacter(charName, realm, region, axios);
 
@@ -574,8 +597,10 @@ async function GetBattleNetResponse(region, realm, charName, embedMessage, level
     embedMessage.setColor(rgbToHex(mplusData.current_mythic_rating.color.r, mplusData.current_mythic_rating.color.g, mplusData.current_mythic_rating.color.b));
 
     console.log("Requesting BattleNet Char Image");
-    var media = await LookupBattlenetCharAvatar(bnetCharData.media.href);;
-    embedMessage.setDescription(FormatCharData(defaultDescription, bnetCharData, realm, region, Math.round(mplusData.current_mythic_rating.rating), showTop3));
+    var media = await LookupBattlenetCharAvatar(bnetCharData.media.href);
+    let battleNetData = FormatCharData(bnetCharData, realm, region, Math.round(mplusData.current_mythic_rating.rating));
+
+    embedMessage.setDescription(`${defaultdescription}\n${battleNetData}${header}`);
     let avatar = media.find(({ key }) => key === 'avatar');
 
     embedMessage.setThumbnail(avatar.value);
@@ -589,7 +614,7 @@ async function GetBattleNetResponse(region, realm, charName, embedMessage, level
 }
 function SetFooter(embedMessage) {
   embedMessage.setFooter({
-    text: 'Made by Andy#0761',
+    text: `Made by Andy#0761`,
     iconURL: 'https://i.ibb.co/qx7zzzQ/squiggs.jpg',
   });
   return embedMessage;
@@ -676,12 +701,19 @@ function TrimDungeonName(dungeon){
 
 function GetClassIcon(className){
   let classEmoji ="";
+  //console.log(className);
   switch(className){
     case "Priest":
       classEmoji = Classes.priest;
         break;
+      case "DemonHunter":
+        classEmoji = Classes.demonHunter;
+        break;
       case "Demon Hunter":
         classEmoji = Classes.demonHunter;
+        break;
+      case "DeathKnight":
+        classEmoji = Classes.deathKnight;
         break;
       case "Death Knight":
         classEmoji = Classes.deathKnight;
@@ -770,8 +802,14 @@ client.on('interactionCreate', async interaction => {
       console.log(`Parsed Message understood as: Parses for Char: ${charName} on: ${realm} in: ${region} for Level: ${level} Report?: ${reportType} with Metric?: ${metric}`);
       await interaction.deferReply();
       let embedMessage = GetInitialResponseToQuery(level, metric);
+
+      let defaultDescription = `Displays your historical top ranking ${metric.toUpperCase()} parses above keystone level ${level} per dungeon, by bracket. In order for this to work, you must have valid warcraft logs for your Mythic + dungeon runs.`;
       
-      embedMessage = await GetBattleNetResponse(region, realm, charName, embedMessage, level, showTop3, metric);
+      let header = "**__Top Parse:__**";
+      if (showTop3) {
+        header = "**__Top 3 Parses:__**";
+      }
+      embedMessage = await AddBattleNetData(defaultDescription, region, realm, charName, embedMessage, header);
       await interaction.editReply({ embeds: [embedMessage] });
       
       console.log("Requesting Warcraft Logs Data");
@@ -819,10 +857,10 @@ client.on('interactionCreate', async interaction => {
       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Upper Karazhan", "UK", S4Dungeons.upkz, level, metric, showTop3);      
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Mechagon JunkYard", "MJ", S4Dungeons.omj, level, metric, showTop3);    
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "JunkYard", "MJ", S4Dungeons.omj, level, metric, showTop3);    
       await interaction.editReply({ embeds: [embedMessage] });
 
-      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Mechagon Workshop", "MW", S4Dungeons.omw, level, metric, showTop3);     
+      embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Workshop", "MW", S4Dungeons.omw, level, metric, showTop3);     
       await interaction.editReply({ embeds: [embedMessage] });
 
       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "Streets of Wonder", "Streets", S4Dungeons.strt, level, metric, showTop3); 
@@ -831,7 +869,11 @@ client.on('interactionCreate', async interaction => {
       embedMessage = await AddDungeon(charName, realm, region, axios, embedMessage, "So'Leah's Gambit", "Gambit", S4Dungeons.gmbt, level, metric, showTop3);
       await interaction.editReply({ embeds: [embedMessage] });
 
+      AddFooterEmbed(embedMessage,region,realm,charName);
+
       embedMessage = SetFooter(embedMessage);
+      
+      embedMessage.setTimestamp();
       await interaction.editReply({ embeds: [embedMessage] });
       console.log("Awaiting Next");
     }
@@ -855,10 +897,113 @@ client.on('interactionCreate', async interaction => {
         ]
         );
       });
+
       embedMessage = SetFooter(embedMessage);
+      embedMessage.setTimestamp();
       await interaction.editReply({ embeds: [embedMessage] });
     }
 
+    else if(interaction.commandName === 'explosives'){
+      
+      let Dungeons=[];
+      const explosives=120651;
+      const explosiveAffix=13;
+      let region = interaction.options.getString("region").toLocaleLowerCase();
+      let realm = interaction.options.getString("realm").toLocaleLowerCase();
+      let charName = interaction.options.getString("charactername"); 
+      let defaultDescription = `Displays your explosive counters during explosive weeks, provided by Warcraft Logs.`;
+      console.log(`Parsed Message understood as: WeeklyKeys for Char: ${charName} on: ${realm} in: ${region}.`);
+      let header = "**__Recent Keys:__**";
+      await interaction.deferReply({ephemeral: false});
+      let embedMessage = GetExplosiveInitialResponse();
+      //embedMessage = await AddBattleNetData(defaultDescription, region, realm, charName, embedMessage, header);
+      //await interaction.editReply({ embeds: [embedMessage] });
+      let RecentReports = await LookupRecentPlayerReports(charName,realm,region,WCLToken);
+      for(const report of RecentReports)
+      {
+            let Actor = report.masterData.actors.find(x=> {
+              return x.name.toLocaleLowerCase() === charName.toLocaleLowerCase();
+            });
+          for(const fight of report.fights)
+          {
+              if(fight.keystoneAffixes.includes(explosiveAffix)){
+                  if(fight.friendlyPlayers.includes(Actor.id)){
+                    let _explosiveid =0;
+                    //console.log(JSON.stringify(fight.enemyNPCs));
+                    fight.enemyNPCs.forEach(enemy=>{
+                        if(enemy.gameID === explosives){
+                            //console.log("Found it, setting it to: " + enemy.id);
+                            _explosiveid = enemy.id;
+                        }
+                    });
+
+                    
+                    let dungeon = {
+                        startTime: report.startTime + fight.startTime,
+                        realStartTime: fight.startTime,
+                        endTime: report.startTime + fight.endTime,
+                        bonus: fight.keystoneBonus,
+                        name: fight.name,
+                        level: fight.keystoneLevel,
+                        code: report.code,
+                        fightID: fight.id,
+                        explosiveID: _explosiveid,
+                        explosiveBreakdown:[]
+                    };
+
+
+                    var u = await GetExplosiveCount(dungeon.code,dungeon.fightID,dungeon.explosiveID,dungeon.realStartTime, WCLToken);
+                    let charList = [];
+                    if(u!=null){
+                      u.forEach(x=> {
+                        var y ={
+                            name: x.name,
+                            class: x.type,
+                            total: x.total
+                      };
+                  
+                    charList.push(y);
+                   });
+                  }
+
+                  if(charList.length > 0){
+                    charList = charList.sort((firstItem, secondItem) => firstItem.total - secondItem.total).reverse();
+                    dungeon.explosiveBreakdown = charList;
+                    Dungeons.push(dungeon);
+                  }
+
+                  } //end actor id check
+              } //end affix check         
+          }; //end fight for
+      } //end report for
+      Dungeons = Dungeons.sort((firstItem, secondItem) => firstItem.startTime - secondItem.startTime).reverse();
+      Dungeons.forEach(dungeon => {
+        let scoreboard="";
+        let rank =1;
+        let padding = 2;
+        dungeon.explosiveBreakdown.forEach(entry=>
+          {
+            if(entry.total >=100){
+              padding=3;
+            }
+            scoreboard = `${scoreboard}**${entry.total.toString().padStart(padding,0)}** ${GetClassIcon(entry.class)} ${entry.name}\n`
+            rank++;
+          });
+
+          embedMessage.addFields(
+            [{ 
+            name: `${TrimDungeonName(dungeon.name)} +${dungeon.level} ${GetStars(dungeon.bonus)}`, 
+          value: `${scoreboard}[Report](https://www.warcraftlogs.com/reports/${dungeon.code}#fight=${dungeon.fightID})`,
+          inline: true
+      }]);
+      }
+      );
+
+      //AddFooterEmbed(embedMessage,region,realm,charName);
+      embedMessage = SetFooter(embedMessage);
+      embedMessage.setTimestamp();
+      await interaction.editReply({ embeds: [embedMessage] });     
+  }
     else if (interaction.commandName === 'weeklykeys') {
       let region = interaction.options.getString("region").toLocaleLowerCase();
       let realm = interaction.options.getString("realm").toLocaleLowerCase();
@@ -870,17 +1015,18 @@ client.on('interactionCreate', async interaction => {
       console.log("Requesting Weekly keys");
       let embedMessage = GetWeeklyKeysInitialResponse(region, defaultDescription);
       await interaction.editReply({ embeds: [embedMessage] });
+      let header = "**__Top 10 Keys:__**";
+      
       var weeklies = await GetHighestThisWeek(region, realm, charName);
       let message = FormatRaiderIOData(defaultDescription, weeklies.faction, weeklies.race, weeklies.gender, weeklies.class, weeklies.active_spec_name, weeklies.name, weeklies.profile_url);
-      embedMessage.setDescription(message);
-      embedMessage.setThumbnail(weeklies.thumbnail_url);
+      //embedMessage.setThumbnail(weeklies.thumbnail_url);
       let keyArr = weeklies.mythic_plus_weekly_highest_level_runs.map(a => a.mythic_level);
       //console.log(keyArr);
-      message = (`${message}${AddWeeklyKeysSummary(keyArr)}`);
+      header = (`${AddWeeklyKeysSummary(keyArr)}\n\n${header}\n\n`);
+      embedMessage = await AddBattleNetData(defaultDescription, region, realm, charName, embedMessage, header);
+      await interaction.editReply({ embeds: [embedMessage] });
       if(weeklies.mythic_plus_weekly_highest_level_runs.length >=1){
-        let header = "**__Top 10 Keys:__**";
-        message = `${message}\n\n\n${header}\n\n`;
-        embedMessage.setDescription(message);
+
         weeklies.mythic_plus_weekly_highest_level_runs.forEach(weekly => {
           let completed = Date.parse(weekly.completed_at);
           let date = new Date(completed);
@@ -903,7 +1049,9 @@ client.on('interactionCreate', async interaction => {
         embedMessage.setDescription(message);
       }
 
+      AddFooterEmbed(embedMessage,region,realm,charName);
       embedMessage = SetFooter(embedMessage);
+      embedMessage.setTimestamp();
       await interaction.editReply({ embeds: [embedMessage] });
     }
 
@@ -938,48 +1086,7 @@ client.on('interactionCreate', async interaction => {
                   iLVL: member.character.items.item_level_equipped,
                   score: member.keystoneScores.allScore,
                   emojii: ""
-                };
-                // switch(member.character.class.name){
-                //   case "Priest":
-                //       char.emojii = Classes.priest;
-                //       break;
-                //     case "Demon Hunter":
-                //       char.emojii = Classes.demonHunter;
-                //       break;
-                //     case "Death Knight":
-                //       char.emojii = Classes.deathKnight;
-                //       break;
-                //     case "Druid":
-                //       char.emojii = Classes.druid;
-                //       break;
-                //     case "Hunter":
-                //       char.emojii = Classes.hunter;
-                //       break;
-                //     case "Warlock":
-                //       char.emojii = Classes.warlock;
-                //       break;
-                //     case "Mage":
-                //       char.emojii = Classes.mage;
-                //       break;
-                //     case "Monk":
-                //       char.emojii = Classes.monk;
-                //       break;
-                //     case "Paladin":
-                //       char.emojii = Classes.paladin;
-                //       break;
-                //     case "Rogue":
-                //       char.emojii = Classes.rogue;
-                //       break;
-                //     case "Shaman":
-                //       char.emojii = Classes.shaman;
-                //       break;
-                //     case "Warrior":
-                //       char.emojii = Classes.warrior;
-                //       break;
-                //   default:
-                //     break;
-                // };
-                     
+                };               
                 char.emojii = GetClassIcon(member.character.class.name);
                
                 FormattedRoster.push(char);
@@ -1028,14 +1135,13 @@ client.on('interactionCreate', async interaction => {
       results.forEach(result=>{
 
         embedMessage.addFields({
-          name: `#${count} - ${result.emojii} ${result.name}`,
+          name: `#${count} - ${result.name} ${result.emojii}`,
           value: 
 `IO Score: [**${result.score}**](https://raider.io/characters/${region}/${realm}/${encodeURI(result.name)})
 ilvl: **${result.iLVL}**
 Role: **${result.role}**`,
                   inline: true
-        }
-        );
+        });
         count++;
       });
 
